@@ -7,7 +7,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const RIOT_API_KEY = process.env.RIOT_API_KEY;
 
 const trackedSummoners = new Set();
-const inGameSummoners = new Set();
+const inGameSummoners = new Map();
 
 client.on('ready', () => {
     console.log(`Logged in as ${client.user.tag}!`);
@@ -16,18 +16,18 @@ client.on('ready', () => {
 
 client.on('messageCreate', message => {
     if (message.content.startsWith('!track')) {
-        const riotId = message.content.split(' ')[1]; 
-        if (riotId.contains('#')){
+        const riotId = message.content.substring(6).trim(); 
+        if (riotId.includes('#')){
             trackedSummoners.add(riotId);
             message.channel.send(`Tracking ${riotId} for game status.`);
-        }else{
-            message.channel.send("You need a tagline to track a user.")
+        } else {
+            message.channel.send("You need a tagline to track a user.");
         }
     }
 });
 
 async function getSummonerId(riotId) {
-    const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME); 
+    const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME);
     const [gameName, tagLine] = riotId.split('#');
     try {
         const response = await axios.get(`https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${gameName}/${tagLine}`, {
@@ -36,7 +36,7 @@ async function getSummonerId(riotId) {
         return response.data.puuid; 
     } catch (error) {
         console.error(`Error fetching summoner ID for ${riotId}:`, error.message);
-        channel.send(`Summoner ${riotId} doesn't exist.`)
+        channel.send(`Summoner ${riotId} doesn't exist.`);
         trackedSummoners.delete(riotId);
         return null;
     }
@@ -82,18 +82,28 @@ async function checkGameStatus() {
                 headers: { 'X-Riot-Token': RIOT_API_KEY }
             });
 
-            const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME); 
+            const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME);
 
             if (currentGameResponse.data) {
-                inGameSummoners.add(riotId); 
+                const currentGameId = currentGameResponse.data.gameId;
+
+                if (!inGameSummoners.has(riotId)) {
+                    inGameSummoners.set(riotId, currentGameId); 
+                } else if (inGameSummoners.get(riotId) !== currentGameId) {
+                    const statsMessage = await getMatchStats(puuid);
+                    channel.send(`${riotId} has finished their game!\n${statsMessage}`);
+                    
+                    inGameSummoners.set(riotId, currentGameId); 
+                }
             } else if (inGameSummoners.has(riotId)) {
-                inGameSummoners.delete(riotId); 
                 const statsMessage = await getMatchStats(puuid);
-                channel.send(`${riotId} has finished their game! \n ${statsMessage}`);
+                channel.send(`${riotId} has finished their game!\n${statsMessage}`);
+                
+                inGameSummoners.delete(riotId); 
             }
         } catch (error) {
-            if (error.response && error.response.status === 404) {               
-            }else{
+            if (error.response && error.response.status === 404) {
+            } else {
                 console.log("Error: " + error);
             }
         }

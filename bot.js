@@ -48,24 +48,28 @@ async function getMatchStats(puuid) {
             headers: { 'X-Riot-Token': RIOT_API_KEY }
         });
 
-        if (matchlistResponse.data.matches.length === 0) {
-            return `No recent matches found for PUUID: ${puuid}`;
-        }
-
-        const recentMatchId = matchlistResponse.data.matches[0].gameId;
+        const recentMatchId = matchlistResponse.data[0];
+        console.log(recentMatchId);
 
         const matchResponse = await axios.get(`https://europe.api.riotgames.com/lol/match/v5/matches/${recentMatchId}`, {
             headers: { 'X-Riot-Token': RIOT_API_KEY }
         });
 
-        const participantId = matchResponse.data.participantIdentities.find(participant => participant.player.puuid === puuid).participantId;
-        const participantStats = matchResponse.data.participants.find(participant => participant.participantId === participantId).stats;
+        const participant = matchResponse.data.info.participants.find(p => p.puuid === puuid);
 
-        const kills = participantStats.kills;
-        const deaths = participantStats.deaths;
-        const assists = participantStats.assists;
+        const summonerName = participant.summonerName;
+        const winStatus = participant.win ? 'Won' : 'Lost';
+        const championName = participant.championName;
+        const kills = participant.kills;
+        const deaths = participant.deaths;
+        const assists = participant.assists;
+        const kda = deaths > 0 ? ((kills + assists) / deaths).toFixed(2) : 'Perfect KDA';
 
-        return `${puuid} KDA Stats: ${kills} / ${deaths} / ${assists}`;
+        return `Match Stats for ${summonerName}:
+        - Result: ${winStatus}
+        - Champion: ${championName}
+        - Stats: ${kills}/${deaths}/${assists}
+        - KDA: ${kda}`;
     } catch (error) {
         console.error(`Error fetching match stats for ${puuid}:`, error.message);
         return `Could not retrieve match stats for ${puuid}.`;

@@ -49,7 +49,6 @@ async function getMatchStats(puuid) {
         });
 
         const recentMatchId = matchlistResponse.data[0];
-        console.log(recentMatchId);
 
         const matchResponse = await axios.get(`https://europe.api.riotgames.com/lol/match/v5/matches/${recentMatchId}`, {
             headers: { 'X-Riot-Token': RIOT_API_KEY }
@@ -65,11 +64,15 @@ async function getMatchStats(puuid) {
         const assists = participant.assists;
         const kda = deaths > 0 ? ((kills + assists) / deaths).toFixed(2) : 'Perfect KDA';
 
-        return `Match Stats for ${summonerName}:
+        return `
+        ${summonerName} just finished a game!
+
+        Match Stats for ${summonerName}:
         - Result: ${winStatus}
         - Champion: ${championName}
         - Stats: ${kills}/${deaths}/${assists}
-        - KDA: ${kda}`;
+        - KDA: ${kda}
+        `;
     } catch (error) {
         console.error(`Error fetching match stats for ${puuid}:`, error.message);
         return `Could not retrieve match stats for ${puuid}.`;
@@ -95,13 +98,13 @@ async function checkGameStatus() {
                     inGameSummoners.set(riotId, currentGameId); 
                 } else if (inGameSummoners.get(riotId) !== currentGameId) {
                     const statsMessage = await getMatchStats(puuid);
-                    channel.send(`${riotId} has finished their game!\n${statsMessage}`);
+                    channel.send(`${statsMessage}`);
                     
                     inGameSummoners.set(riotId, currentGameId); 
                 }
             } else if (inGameSummoners.has(riotId)) {
                 const statsMessage = await getMatchStats(puuid);
-                channel.send(`${riotId} has finished their game!\n${statsMessage}`);
+                channel.send(`${statsMessage}`);
                 
                 inGameSummoners.delete(riotId); 
             }

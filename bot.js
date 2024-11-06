@@ -6,18 +6,68 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 
 const RIOT_API_KEY = process.env.RIOT_API_KEY;
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const GUILD_ID = process.env.GUILD_ID;
 
-const trackedSummoners = new Set();
-const lastMatchIds = new Map();
+// Functions for managing data in json file
+const fs = require('fs');
+const DATA_FILE = process.env.FILE;
 
+function loadData() {
+    if (fs.existsSync(DATA_FILE)) {
+        const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
+        if (rawData.trim() === '') {
+            return {};
+        }
+        return JSON.parse(rawData);
+    }
+    return {}; 
+}
+
+function saveData(data) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// Function to retrieve last played match IDs for all tracked summoners
+async function fetchLastMatches() {
+    const data = loadData();
+    for (const [guildId, guildData] of Object.entries(data)) {
+        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === process.env.CHANNEL_NAME);
+        if (!channel) continue;
+
+        for (const riotId of guildData.trackedSummoners) {
+            const puuid = await getSummonerId(riotId, guildId);
+            if (!puuid) {
+                console.log(`No puuid for user ${riotId}`);
+                continue;
+            }
+
+            try {
+                const matchlistResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
+                    headers: { 'X-Riot-Token': RIOT_API_KEY }
+                });
+
+                const latestMatchId = matchlistResponse.data[0];
+                if (latestMatchId) {
+                    guildData.lastMatchIds[riotId] = latestMatchId;
+                }
+
+            } catch (error) {
+                console.error(`Error fetching match history for ${riotId}:`, error.message);
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 1500)); 
+        }
+        saveData(data);
+    }
+}
+
+// Preparing the bot
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
 
     const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
     try {
         await rest.put(
-            Routes.applicationGuildCommands(client.user.id, GUILD_ID),
+            Routes.applicationCommands(client.user.id),
             { body: [
                 {
                     name: 'track',
@@ -54,58 +104,81 @@ client.once('ready', async () => {
         console.error('Error registering application commands:', error);
     }
 
+    await fetchLastMatches();
+    console.log('Bot data updated, bot ready.');
+
     setInterval(() => {
         checkGameStatus(); 
     }, 60000);
 });
 
+// Logic behind discord commands
 client.on('interactionCreate', async interaction => {
     try {
         if (!interaction.isCommand()) return;
 
+        const data = loadData();
+        const guildId = interaction.guildId;
+
+        if (!data[guildId]) {
+            data[guildId] = { trackedSummoners: [], lastMatchIds: {} };
+        }
+
+        const guildData = data[guildId];
+
         if (interaction.commandName === 'track') {
             const riotId = interaction.options.getString('riotid').trim();
             if (riotId.includes('#')) {
-                trackedSummoners.add(riotId);
-                const puuid = await getSummonerId(riotId);
-                if (!puuid) {
-                    await interaction.reply(`User ${riotId} doesn't exist.`);
-                    return;
-                };
+                if (!guildData.trackedSummoners.includes(riotId)) {
+                    guildData.trackedSummoners.push(riotId);
+                    const puuid = await getSummonerId(riotId);
+                    if (!puuid) {
+                        await interaction.reply(`User ${riotId} doesn't exist.`);
+                        return;
+                    }
 
-                try {
-                    const matchlistResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
-                        headers: { 'X-Riot-Token': RIOT_API_KEY }
-                    });
+                    try {
+                        const matchlistResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
+                            headers: { 'X-Riot-Token': RIOT_API_KEY }
+                        });
 
-                    const latestMatchId = matchlistResponse.data[0];
-                    lastMatchIds.set(riotId, latestMatchId);
-                } catch (error) {
-                    console.error(`Error fetching match history for ${riotId}:`, error.message);
+                        const latestMatchId = matchlistResponse.data[0];
+                        guildData.lastMatchIds[riotId] = latestMatchId;
+                    } catch (error) {
+                        console.error(`Error fetching match history for ${riotId}:`, error.message);
+                    }
+
+                    saveData(data);
+                    await interaction.reply(`Tracking ${riotId} for game status.`);
+                } else {
+                    await interaction.reply(`${riotId} is already being tracked.`);
                 }
-
-                await interaction.reply(`Tracking ${riotId} for game status.`);
             } else {
                 await interaction.reply("You need a tagline to track a user.");
             }
         }
+
         if (interaction.commandName === 'untrack') {
             const riotId = interaction.options.getString('riotid').trim();
             if (riotId.includes('#')) {
-                if(trackedSummoners.has(riotId)){
-                    trackedSummoners.delete(riotId);
-                    lastMatchIds.delete(riotId);
+                if (guildData.trackedSummoners.includes(riotId)) {
+                    guildData.trackedSummoners = guildData.trackedSummoners.filter(s => s !== riotId);
+                    delete guildData.lastMatchIds[riotId];
+                    saveData(data);
                     await interaction.reply(`Stopped tracking for ${riotId}.`);
+                } else {
+                    await interaction.reply(`${riotId} is not currently being tracked.`);
                 }
             } else {
                 await interaction.reply("No tagline.");
             }
         }
+
         if (interaction.commandName === 'tracked') {
-            if (trackedSummoners.size === 0) {
+            if (guildData.trackedSummoners.length === 0) {
                 await interaction.reply("No summoners are currently being tracked.");
             } else {
-                const trackedList = Array.from(trackedSummoners).join(', ');
+                const trackedList = guildData.trackedSummoners.join(', ');
                 await interaction.reply(`Currently tracking the following summoners: ${trackedList}`);
             }
         }
@@ -115,7 +188,8 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-async function axiosWithRetry(url, options, retries = 5, delay = 2000) {
+// Helper for 'Service Unavailable' error
+async function axiosWithRetry(url, options, retries = 4, delay = 2000) {
     for (let i = 0; i < retries; i++) {
         try {
             return await axios.get(url, options);
@@ -131,28 +205,61 @@ async function axiosWithRetry(url, options, retries = 5, delay = 2000) {
     }
 }
 
-async function getSummonerId(riotId) {
+// Function to get puuid from riotId
+async function getSummonerId(riotId, guildId) {
+    const data = loadData();
     const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME);
     const [gameName, tagLine] = riotId.split('#');
+
+    if (!data[guildId]) {
+        data[guildId] = { trackedSummoners: [], lastMatchIds: {} };
+    }
+
     try {
         const response = await axiosWithRetry(`https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${gameName}/${tagLine}`, {
             headers: { 'X-Riot-Token': RIOT_API_KEY }
         });
-        return response.data.puuid; 
+
+        const puuid = response.data.puuid;
+
+        if (!data[guildId].trackedSummoners.includes(riotId)) {
+            data[guildId].trackedSummoners.push(riotId);
+        }
+
+        saveData(data);
+
+        return puuid;
     } catch (error) {
         console.error(`Error fetching summoner ID for ${riotId}:`, error.message);
-        channel.send(`Summoner ${riotId} doesn't exist.`);
-        trackedSummoners.delete(riotId);
+        if (channel) {
+            channel.send(`Summoner ${riotId} doesn't exist.`);
+        }
+
+        if (data[guildId] && data[guildId].trackedSummoners.includes(riotId)) {
+            data[guildId].trackedSummoners = data[guildId].trackedSummoners.filter(s => s !== riotId);
+            saveData(data);  
+        }
+
         return null;
     }
 }
 
+// Function to get stats for the tracked summoner
 async function getMatchStats(matchId, puuid) {
     try {
         const matchResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/${matchId}`, {
             headers: { 'X-Riot-Token': RIOT_API_KEY }
         });
 
+        const formatGameTime = (duration) => {
+            const minutes = Math.floor(duration / 60);
+            const seconds = duration % 60;
+            return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        };
+
+        const gameDuration = matchResponse.data.info.gameDuration;
+        if (gameDuration < 300) return null;  
+        const gameMode = matchResponse.data.info.gameMode;
         const participant = matchResponse.data.info.participants.find(p => p.puuid === puuid);
 
         const summonerName = participant.summonerName;
@@ -162,6 +269,24 @@ async function getMatchStats(matchId, puuid) {
         const deaths = participant.deaths;
         const assists = participant.assists;
         const kda = deaths > 0 ? ((kills + assists) / deaths).toFixed(2) : 'Perfect KDA';
+        const kp = Math.round(participant.challenges.killParticipation * 100) + '%';
+        const multikillNumber = participant.LargestMultiKill;
+        let multikill = '-';
+        switch (multikillNumber) {
+            case 2:
+                multikill = 'Double Kill';
+                break;
+            case 3:
+                multikill = 'Triple Kill';
+                break;
+            case 4:
+                multikill = 'Quadra Kill';
+                break;
+            case 5:
+            default:
+                multikill = 'Penta Kill';
+                break;
+        }
 
         const embed = new EmbedBuilder()
             .setColor(winStatus === 'Won' ? 0x00FF00 : 0xFF0000) 
@@ -170,10 +295,12 @@ async function getMatchStats(matchId, puuid) {
                 { name: 'Result', value: winStatus, inline: true },
                 { name: 'Champion', value: championName, inline: true },
                 { name: 'KDA', value: `${kills} / ${deaths} / ${assists}`, inline: true },
-                { name: 'KDA Ratio', value: kda, inline: true }
+                { name: 'KDA Ratio', value: kda, inline: true },
+                { name: 'KP%', value: kp, inline: true },
+                { name: 'Largest multikill', value: multikill, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: 'Match Stats' });
+            .setFooter({ text: `${gameMode} (${formatGameTime(gameDuration)})` });
 
         return { embeds: [embed] }; 
     } catch (error) {
@@ -182,33 +309,57 @@ async function getMatchStats(matchId, puuid) {
     }
 }
 
+// Function for checking if someone had played a new match
+let isChecking = false;
+
 async function checkGameStatus() {
-    for (const riotId of trackedSummoners) {
-        const puuid = await getSummonerId(riotId);
-        if (!puuid) {
-            console.log(`No puuid for user ${riotId}`);
-            continue;
-        };
 
-        try {
-            const matchlistResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
-                headers: { 'X-Riot-Token': RIOT_API_KEY }
-            });
+    if (isChecking) return; // Prevent overlapping if there's just too many trackings   
+    isChecking = true;
 
-            const latestMatchId = matchlistResponse.data[0];
+    const data = loadData();
+    const promises = [];
 
-            if (latestMatchId && latestMatchId !== lastMatchIds.get(riotId)) {
-                const statsMessage = await getMatchStats(latestMatchId, puuid); 
-                const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME);
-                channel.send({ embeds: [statsMessage.embeds[0]] });
+    for (const [guildId, guildData] of Object.entries(data)) {
+        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === process.env.CHANNEL_NAME);
+        if (!channel) continue;
 
-                lastMatchIds.set(riotId, latestMatchId);
+        for (const riotId of guildData.trackedSummoners) {
+            const puuid = await getSummonerId(riotId, guildId);
+            if (!puuid) {
+                console.log(`No puuid for user ${riotId}`);
+                continue;
             }
 
-        } catch (error) {
-            console.error(`Error fetching match history for ${riotId}:`, error.message);
+            promises.push(
+                (async () => {
+                    try {
+                        const matchlistResponse = await axiosWithRetry(
+                            `https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
+                            headers: { 'X-Riot-Token': RIOT_API_KEY }
+                        });
+
+                        const latestMatchId = matchlistResponse.data[0];
+                        if (latestMatchId && latestMatchId !== guildData.lastMatchIds[riotId]) {
+                            const statsMessage = await getMatchStats(latestMatchId, puuid);
+                            if (statsMessage) {
+                                await channel.send({ embeds: [statsMessage.embeds[0]] });
+                            }
+                            guildData.lastMatchIds[riotId] = latestMatchId;
+                        }
+                    } catch (error) {
+                        console.error(`Error fetching match history for ${riotId}:`, error.message);
+                    }
+                })()
+            );
+
+            await new Promise(resolve => setTimeout(resolve, 1500)); 
         }
     }
+
+    await Promise.all(promises);
+    saveData(data);
+    isChecking = false;
 }
 
 client.login(DISCORD_TOKEN);

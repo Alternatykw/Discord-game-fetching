@@ -30,7 +30,7 @@ function saveData(data) {
 async function fetchLastMatches() {
     const data = loadData();
     for (const [guildId, guildData] of Object.entries(data)) {
-        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === process.env.CHANNEL_NAME);
+        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === guildData.responseChannel);
         if (!channel) continue;
 
         for (const riotId of guildData.trackedSummoners) {
@@ -96,6 +96,18 @@ client.once('ready', async () => {
                 {
                     name: 'tracked',
                     description: 'List all currently tracked summoners',
+                },
+                {
+                    name: 'tracker-set',
+                    description: 'Set the response channel for tracking updates',
+                    options: [
+                        {
+                            name: 'channel',
+                            type: 7,
+                            description: 'The name of the channel',
+                            required: true,
+                        }
+                    ]
                 }
             ] }
         );
@@ -121,10 +133,25 @@ client.on('interactionCreate', async interaction => {
         const guildId = interaction.guildId;
 
         if (!data[guildId]) {
-            data[guildId] = { trackedSummoners: [], lastMatchIds: {} };
+            data[guildId] = { trackedSummoners: [], lastMatchIds: {}, responseChannel: null };
         }
 
         const guildData = data[guildId];
+        const channelName = guildData.responseChannel;
+
+        if (!channelName && interaction.commandName !== 'tracker-set'){
+            await interaction.reply(`No response channel set, use "/tracker-set" command.`);
+            return;
+        }
+
+        if (guildData.responseChannel && interaction.channelId !== guildData.responseChannel && interaction.commandName !== 'tracker-set') {
+            const channel = await client.channels.fetch(guildData.responseChannel);
+            replyMessage = await interaction.reply({
+                content: `Please use ${channel} for the game-tracker commands.`,
+                ephemeral: true
+            });
+            return;
+        }
 
         if (interaction.commandName === 'track') {
             const riotId = interaction.options.getString('riotid').trim();
@@ -182,6 +209,18 @@ client.on('interactionCreate', async interaction => {
                 await interaction.reply(`Currently tracking the following summoners: ${trackedList}`);
             }
         }
+
+        if (interaction.commandName === 'tracker-set') {
+            const channel = interaction.options.getChannel('channel');
+            if (channel && channel.isTextBased()) { 
+                guildData.responseChannel = channel.id; 
+                saveData(data);
+                await interaction.reply(`Response channel set to ${channel}.`);
+            } else {
+                await interaction.reply("Please select a valid text channel.");
+            }
+        }
+
     } catch (error) {
         console.error('Error handling interaction:', error);
         await interaction.reply("There was an error processing your command.");
@@ -208,7 +247,7 @@ async function axiosWithRetry(url, options, retries = 4, delay = 2000) {
 // Function to get puuid from riotId
 async function getSummonerId(riotId, guildId) {
     const data = loadData();
-    const channel = client.channels.cache.find(channel => channel.name === process.env.CHANNEL_NAME);
+    const channel = client.channels.cache.find(channel => channel.name === guildData.responseChannel);
     const [gameName, tagLine] = riotId.split('#');
 
     if (!data[guildId]) {
@@ -324,7 +363,7 @@ async function checkGameStatus() {
     const promises = [];
 
     for (const [guildId, guildData] of Object.entries(data)) {
-        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === process.env.CHANNEL_NAME);
+        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === guildData.responseChannel);
         if (!channel) continue;
 
         for (const riotId of guildData.trackedSummoners) {

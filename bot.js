@@ -260,6 +260,7 @@ async function getMatchStats(matchId, puuid) {
         const gameDuration = matchResponse.data.info.gameDuration;
         if (gameDuration < 300) return null;  
         const gameMode = matchResponse.data.info.gameMode;
+        gameMode === "CLASSIC" ? "SUMMONNERS RIFT" : gameMode;
         const participant = matchResponse.data.info.participants.find(p => p.puuid === puuid);
 
         const summonerName = participant.summonerName;
@@ -271,21 +272,23 @@ async function getMatchStats(matchId, puuid) {
         const kda = deaths > 0 ? ((kills + assists) / deaths).toFixed(2) : 'Perfect KDA';
         const kp = Math.round(participant.challenges.killParticipation * 100) + '%';
         const multikillNumber = participant.LargestMultiKill;
-        let multikill = '-';
-        switch (multikillNumber) {
-            case 2:
-                multikill = 'Double Kill';
-                break;
-            case 3:
-                multikill = 'Triple Kill';
-                break;
-            case 4:
-                multikill = 'Quadra Kill';
-                break;
-            case 5:
-            default:
-                multikill = 'Penta Kill';
-                break;
+        if (multikillNumber <= 1) {
+            multikill = '-';
+        } else {
+            switch (multikillNumber) {
+                case 2:
+                    multikill = 'Double Kill';
+                    break;
+                case 3:
+                    multikill = 'Triple Kill';
+                    break;
+                case 4:
+                    multikill = 'Quadra Kill';
+                    break;
+                default:
+                    multikill = 'Penta Kill';
+                    break;
+            }
         }
 
         const embed = new EmbedBuilder()
@@ -297,7 +300,7 @@ async function getMatchStats(matchId, puuid) {
                 { name: 'KDA', value: `${kills} / ${deaths} / ${assists}`, inline: true },
                 { name: 'KDA Ratio', value: kda, inline: true },
                 { name: 'KP%', value: kp, inline: true },
-                { name: 'Largest multikill', value: multikill, inline: true }
+                { name: 'Largest Multikill', value: multikill, inline: true }
             )
             .setTimestamp()
             .setFooter({ text: `${gameMode} (${formatGameTime(gameDuration)})` });

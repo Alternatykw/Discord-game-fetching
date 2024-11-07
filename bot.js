@@ -12,14 +12,16 @@ const fs = require('fs');
 const DATA_FILE = process.env.FILE;
 
 function loadData() {
-    if (fs.existsSync(DATA_FILE)) {
-        const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
-        if (rawData.trim() === '') {
-            return {};
-        }
-        return JSON.parse(rawData);
+    if (!fs.existsSync(DATA_FILE)) {
+        return {}; 
     }
-    return {}; 
+    
+    const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
+    if (rawData.trim() === '') {
+        return {};
+    }
+    return JSON.parse(rawData);
+
 }
 
 function saveData(data) {
@@ -155,49 +157,50 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.commandName === 'track') {
             const riotId = interaction.options.getString('riotid').trim();
-            if (riotId.includes('#')) {
-                if (!guildData.trackedSummoners.includes(riotId)) {
-                    guildData.trackedSummoners.push(riotId);
-                    const puuid = await getSummonerId(riotId);
-                    if (!puuid) {
-                        await interaction.reply(`User ${riotId} doesn't exist.`);
-                        return;
-                    }
-
-                    try {
-                        const matchlistResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
-                            headers: { 'X-Riot-Token': RIOT_API_KEY }
-                        });
-
-                        const latestMatchId = matchlistResponse.data[0];
-                        guildData.lastMatchIds[riotId] = latestMatchId;
-                    } catch (error) {
-                        console.error(`Error fetching match history for ${riotId}:`, error.message);
-                    }
-
-                    saveData(data);
-                    await interaction.reply(`Tracking ${riotId} for game status.`);
-                } else {
-                    await interaction.reply(`${riotId} is already being tracked.`);
-                }
-            } else {
+            if (!riotId.includes('#')) {
                 await interaction.reply("You need a tagline to track a user.");
+                return;
+            }
+            if (guildData.trackedSummoners.includes(riotId)) {
+                await interaction.reply(`${riotId} is already being tracked.`);
+                return;
+            } else {
+                guildData.trackedSummoners.push(riotId);
+                const puuid = await getSummonerId(riotId);
+                if (!puuid) {
+                    await interaction.reply(`User ${riotId} doesn't exist.`);
+                    return;
+                }
+                
+                try {
+                    const matchlistResponse = await axiosWithRetry(`https://europe.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`, {
+                        headers: { 'X-Riot-Token': RIOT_API_KEY }
+                    });
+                    const latestMatchId = matchlistResponse.data[0];
+                    guildData.lastMatchIds[riotId] = latestMatchId;
+                } catch (error) {
+                    console.error(`Error fetching match history for ${riotId}:`, error.message);
+                }
+
+                saveData(data);
+                await interaction.reply(`Tracking ${riotId} for game status.`);
             }
         }
 
         if (interaction.commandName === 'untrack') {
             const riotId = interaction.options.getString('riotid').trim();
-            if (riotId.includes('#')) {
-                if (guildData.trackedSummoners.includes(riotId)) {
-                    guildData.trackedSummoners = guildData.trackedSummoners.filter(s => s !== riotId);
-                    delete guildData.lastMatchIds[riotId];
-                    saveData(data);
-                    await interaction.reply(`Stopped tracking for ${riotId}.`);
-                } else {
-                    await interaction.reply(`${riotId} is not currently being tracked.`);
-                }
-            } else {
+            if (!riotId.includes('#')) {
                 await interaction.reply("No tagline.");
+                return;
+            }
+            if (!guildData.trackedSummoners.includes(riotId)) {
+                await interaction.reply(`${riotId} is currently not being tracked.`);
+                return;
+            } else {
+                guildData.trackedSummoners = guildData.trackedSummoners.filter(s => s !== riotId);
+                delete guildData.lastMatchIds[riotId];
+                saveData(data);
+                await interaction.reply(`Stopped tracking for ${riotId}.`);
             }
         }
 

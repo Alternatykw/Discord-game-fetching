@@ -32,7 +32,7 @@ function saveData(data) {
 async function fetchLastMatches() {
     const data = loadData();
     for (const [guildId, guildData] of Object.entries(data)) {
-        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === guildData.responseChannel);
+        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.id === guildData.responseChannel);
         if (!channel) continue;
 
         for (const riotId of guildData.trackedSummoners) {
@@ -250,12 +250,11 @@ async function axiosWithRetry(url, options, retries = 4, delay = 2000) {
 // Function to get puuid from riotId
 async function getSummonerId(riotId, guildId) {
     const data = loadData();
-    const channel = client.channels.cache.find(channel => channel.name === guildData.responseChannel);
-    const [gameName, tagLine] = riotId.split('#');
-
     if (!data[guildId]) {
         data[guildId] = { trackedSummoners: [], lastMatchIds: {} };
     }
+    const channel = client.channels.cache.find(channel => channel.id === data[guildId].responseChannel);
+    const [gameName, tagLine] = riotId.split('#');
 
     try {
         const response = await axiosWithRetry(`https://europe.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${gameName}/${tagLine}`, {
@@ -301,8 +300,8 @@ async function getMatchStats(matchId, puuid) {
 
         const gameDuration = matchResponse.data.info.gameDuration;
         if (gameDuration < 300) return null;  
-        const gameMode = matchResponse.data.info.gameMode;
-        gameMode === "CLASSIC" ? "SUMMONNERS RIFT" : gameMode;
+        let gameMode = matchResponse.data.info.gameMode;
+        gameMode === "CLASSIC" && (gameMode = "SUMMONERS RIFT");
         const participant = matchResponse.data.info.participants.find(p => p.puuid === puuid);
 
         const summonerName = participant.summonerName;
@@ -313,7 +312,9 @@ async function getMatchStats(matchId, puuid) {
         const assists = participant.assists;
         const kda = deaths > 0 ? ((kills + assists) / deaths).toFixed(2) : 'Perfect KDA';
         const kp = Math.round(participant.challenges.killParticipation * 100) + '%';
-        const multikillNumber = participant.LargestMultiKill;
+        const multikillNumber = participant.largestMultiKill;
+        console.log(multikillNumber);
+        let multikill;
         if (multikillNumber <= 1) {
             multikill = '-';
         } else {
@@ -332,6 +333,8 @@ async function getMatchStats(matchId, puuid) {
                     break;
             }
         }
+        console.log(multikill);
+        console.log(gameMode);
 
         const embed = new EmbedBuilder()
             .setColor(winStatus === 'Won' ? 0x00FF00 : 0xFF0000) 
@@ -366,7 +369,7 @@ async function checkGameStatus() {
     const promises = [];
 
     for (const [guildId, guildData] of Object.entries(data)) {
-        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.name === guildData.responseChannel);
+        const channel = client.channels.cache.find(channel => channel.guild.id === guildId && channel.id === guildData.responseChannel);
         if (!channel) continue;
 
         for (const riotId of guildData.trackedSummoners) {

@@ -74,7 +74,7 @@ client.once('ready', async () => {
                         {
                             name: 'riotid',
                             type: 3, 
-                            description: 'The Riot ID of the summoner (e.g., Summoner#EUNE)',
+                            description: 'The Riot ID of the summoner (e.g. Summoner#EUNE)',
                             required: true,
                         }
                     ]
@@ -86,7 +86,7 @@ client.once('ready', async () => {
                         {
                             name: 'riotid',
                             type: 3, 
-                            description: 'The Riot ID of the summoner (e.g., Summoner#EUNE)',
+                            description: 'The Riot ID of the summoner (e.g. Summoner#EUNE)',
                             required: true,
                         }
                     ]
@@ -203,7 +203,7 @@ client.on('interactionCreate', async interaction => {
             if (Object.keys(guildData.trackedSummoners).length === 0) {
                 await interaction.reply("No summoners are currently being tracked.");
             } else {
-                const trackedList = Object.keys(guildData.trackedSummoners).join(', ');
+                const trackedList = Object.keys(guildData.trackedSummoners).sort().join(', ');
                 await interaction.reply(`Currently tracking the following summoners: ${trackedList}`);
             }
         }

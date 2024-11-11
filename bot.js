@@ -152,7 +152,8 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.commandName === 'track') {
-            const riotId = interaction.options.getString('riotid').trim();
+            let riotId = interaction.options.getString('riotid').trim();
+            riotId = riotId.replace(/\s+/g, ' ').replace(/\s*#\s*/, '#');
             if (!riotId.includes('#')) {
                 await interaction.reply("You need a tagline to track a user.");
                 return;
@@ -183,7 +184,8 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (interaction.commandName === 'untrack') {
-            const riotId = interaction.options.getString('riotid').trim();
+            let riotId = interaction.options.getString('riotid').trim();
+            riotId = riotId.replace(/\s+/g, ' ').replace(/\s*#\s*/, '#');
             if (!riotId.includes('#')) {
                 await interaction.reply("No tagline.");
                 return;

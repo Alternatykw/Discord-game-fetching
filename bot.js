@@ -58,6 +58,23 @@ async function fetchLastMatches() {
     }
 }
 
+// Function to retrieve actual champion names
+let championMapping = {};
+
+async function fetchChampionData() {
+    try {
+        const response = await axios.get(
+            "https://ddragon.leagueoflegends.com/cdn/14.23.1/data/en_US/champion.json"
+        ); 
+        const champions = response.data.data;
+        championMapping = Object.fromEntries(
+            Object.values(champions).map(champ => [champ.id, champ.name])
+        );
+    } catch (error) {
+        console.error("Error fetching champion data:", error.message);
+    }
+}
+
 // Preparing the bot
 client.once('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
@@ -115,7 +132,10 @@ client.once('ready', async () => {
     }
 
     await fetchLastMatches();
-    console.log('Bot data updated, bot ready.');
+    console.log('Bot data updated.');
+    await fetchChampionData();
+    console.log('Champion names fetched.');
+    console.log('Bot ready.');
 
     setInterval(() => {
         checkGameStatus(); 
@@ -301,14 +321,13 @@ async function getMatchStats(matchId, puuid) {
 
         const summonerName = participant.summonerName;
         const winStatus = participant.win ? 'Won' : 'Lost';
-        const championName = participant.championName;
+        const championName = championMapping[participant.championName] || participant.championName;
         const kills = participant.kills;
         const deaths = participant.deaths;
         const assists = participant.assists;
         const kda = deaths > 0 ? ((kills + assists) / deaths).toFixed(2) : 'Perfect KDA';
         const kp = Math.round(participant.challenges.killParticipation * 100) + '%';
         const multikillNumber = participant.largestMultiKill;
-        console.log(multikillNumber);
         let multikill;
         if (multikillNumber <= 1) {
             multikill = '-';
@@ -328,8 +347,6 @@ async function getMatchStats(matchId, puuid) {
                     break;
             }
         }
-        console.log(multikill);
-        console.log(gameMode);
 
         const embed = new EmbedBuilder()
             .setColor(winStatus === 'Won' ? 0x00FF00 : 0xFF0000) 

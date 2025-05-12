@@ -317,9 +317,10 @@ async function getMatchStats(matchId, puuid) {
         if (gameDuration < 300) return null;  
         let gameMode = matchResponse.data.info.gameMode;
         gameMode === "CLASSIC" && (gameMode = "SUMMONERS RIFT");
+        gameMode === "CHERRY" && (gameMode = "ARENA");
         const participant = matchResponse.data.info.participants.find(p => p.puuid === puuid);
 
-        const summonerName = participant.summonerName;
+        const summonerName = participant.riotIdGameName;
         const winStatus = participant.win ? 'Won' : 'Lost';
         const championName = championMapping[participant.championName] || participant.championName;
         const kills = participant.kills;

@@ -318,6 +318,7 @@ async function getMatchStats(matchId, puuid) {
         let gameMode = matchResponse.data.info.gameMode;
         gameMode === "CLASSIC" && (gameMode = "SUMMONERS RIFT");
         gameMode === "CHERRY" && (gameMode = "ARENA");
+        (gameMode === "URF" || gameMode === "ARURF") && (gameMode = "URF");
         const participant = matchResponse.data.info.participants.find(p => p.puuid === puuid);
 
         const summonerName = participant.riotIdGameName;
